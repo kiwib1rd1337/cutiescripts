@@ -7,6 +7,7 @@ POLLING_INTERVAL=1
 CPU_MAX_THRESH=67
 CPU_MIN_THRESH=33
 CPU_MINPROCS_ACTIVE=1
+IGNORE_NICE_LOAD=0
 #WHITELIST_X11="Krita"
 #X11_USER=
 
@@ -61,14 +62,20 @@ POLLING_INTERVAL=1
 #   this script might need multiple iterations of POLLING_INTERVAL
 #   in order to eventually match demand.
 #
+# IGNORE_NICE_LOAD: power-saving feature for laptops.
+#                   If set to 1, will ignore low-priority processes for usage calculation.
+#                   Set to 0 to include nice load in usage calculation (performance mode).
+#
 # - Defaults:
 # CPU_MAX_THRESH=67
 # CPU_MIN_THRESH=33
 # CPU_MINPROCS_ACTIVE=1
+# IGNORE_NICE_LOAD=0
 #
 CPU_MAX_THRESH=67
 CPU_MIN_THRESH=33
 CPU_MINPROCS_ACTIVE=1
+IGNORE_NICE_LOAD=0
 
 #################################################
 #    DANGER ZONE BELOW: EXPERIMENTAL FEATURES   #
@@ -109,6 +116,29 @@ CPU_MINPROCS_ACTIVE=1
 "
 }
 test -f $CONFIG_FILE || create_config_file
+
+
+# Check for missing commands
+SHMFILE1=/dev/shm/cpuhotplug86-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
+prerequisites=("awk" "grep" "ps" "top" "tail" "nproc")
+for item in "${prerequisites[@]}"
+do
+  if ! command -v $item &> /dev/null
+  then
+    echo "\"$item\" command could not be found."
+    echo 1 > $SHMFILE1
+  fi
+done
+if test -f $SHMFILE1; then
+  echo "
+One or more of the abovecommand line utilities can not be found. Please install them before continuing.
+"
+  rm -f $SHMFILE1
+  exit 1
+else
+  echo "All required command-line utilities are installed. Continuing..."
+fi
+
 
 # Load config file
 source $CONFIG_FILE
@@ -169,9 +199,13 @@ echo "
 System has $TOTALPROCS processors.
 $NONHOTPLUG_PROCS of these processors are not hotpluggable. Using these procs as masters.
 $HOTPLUGGABLE_PROCS of these processors are hotpluggable. Using these procs as slaves.
-At least $CPU_MINPROCS_ACTIVE processors will be kept alive at any given time.
+At least $CPU_MINPROCS_ACTIVE processors will be kept alive at any given time."
+printf "NICE CPU load (low-priority processes) will be "
+if [ $IGNORE_NICE_LOAD == 1 ]; then printf "EXCLUDED"
+else printf "INCLUDED"
+fi
+echo " in CPU utilization calculations.
 "
-
 echo "Running hotplug script..."
 echo ""
 
@@ -183,8 +217,28 @@ while true
 do
   # Sleep command for polling interval...
   #sleep $POLLING_INTERVAL&
-  # Get CPU usage
-  echo "$[100-$(vmstat $POLLING_INTERVAL 2|tail -1|awk '{print $15}')] * $(nproc)" | bc > $CPUUSAGE_SHMFILE&
+  # Get CPU usage (old)
+  #echo "$[100-$(vmstat $POLLING_INTERVAL 2|tail -1|awk '{print $15}')] * $(nproc)" | bc > $CPUUSAGE_SHMFILE&
+
+  # Get CPU usage (include nice load)
+  get_cpuload_withnice()
+  {
+    CPUSAGE=$(top -bn2 -d1 | grep '%Cpu' | tail -1 | awk '{print (100-($8))}' | awk '{printf("%d\n",$1 + 0.5)}')
+    echo "$CPUSAGE * $(nproc)" | bc > $CPUUSAGE_SHMFILE
+  }
+
+
+  # Get CPU usage (ignore nice load)
+  get_cpuload_nonice()
+  {
+    CPUSAGE=$(top -bn2 -d1 | grep '%Cpu' | tail -1 | awk '{print (100-($8+$6))}' | awk '{printf("%d\n",$1 + 0.5)}')
+    echo "$CPUSAGE * $(nproc)" | bc > $CPUUSAGE_SHMFILE
+  }
+
+  if [ $IGNORE_NICE_LOAD == 1 ]; then get_cpuload_nonice
+  else get_cpuload_withnice
+  fi&
+
   # Check for active window in whitelist...
   [[ -v WHITELIST_X11 ]] && if DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY xdotool getwindowfocus getwindowname | grep -E "$WHITELIST_X11" 2>&1 > /dev/null; then
     echo 1 > $X11CHECK_SHMFILE
