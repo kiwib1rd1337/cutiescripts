@@ -75,7 +75,7 @@
 # REFRESH_DELAY=5
 #
 REFRESH_COUNT=60
-REFRESH_DELAY=5
+REFRESH_DELAY=1
 
 #########################
 ##  TITLE_MATCH_REGEX  ##
@@ -206,19 +206,22 @@ These regex's can be changed by editing this script. Just be sure to back it up 
 
 "
 # Initialize SHM files...
-SHMFILE1=/dev/shm/xwinhibernate1-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
-SHMFILE2=/dev/shm/xwinhibernate2-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
-SHMFILE3=/dev/shm/xwinhibernate3-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
-SHMFILE4=/dev/shm/xwinhibernate3-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
+SHMFILE_BASE=/dev/shm/xwinhibernate1-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
+SHMFILE1=$SHMFILE_BASE"_cache1"
+SHMFILE2=$SHMFILE_BASE"_cache2"
+SHMFILE3=$SHMFILE_BASE"_cache3"
+SHMFILE4=$SHMFILE_BASE"_counter"
+SHMFILE5=$SHMFILE_BASE"_screensaver_state"
 
 # TRAP termination signals, for cleanup, and unfreezing all windows upon exit...
 cleanup()
 {
+  wait
   rm -f $SHMFILE1
   rm -f $SHMFILE2
   rm -f $SHMFILE3
   rm -f $SHMFILE4
-  wait
+  rm -f $SHMFILE5 
   echo ""
   echo "Received termination signal. Restoring all windows..."
   wmctrl -l | grep -E "$TITLE_MATCH_REGEX" | awk '{print $1}' | \
@@ -244,15 +247,27 @@ clipboard-workaround()
    then
      echo "Clipboard data empty or unsupported. Skip..."
    else
-     echo "$CLIPCONTENTS"|timeout 0.5 xclip -selection c
+     echo "$CLIPCONTENTS"| sed -z '$ s/\n$//' | timeout 0.5 xclip -selection c
      echo "Done."
    fi
 }
 
+screensaver_check()
+{
+  # xscreensaver
+  if pgrep -x "xscreensaver" > /dev/null; then
+    if xscreensaver-command -time 2>&1 | grep -q "screen non-blanked"; then return 0
+    else return 1
+    fi
+  fi
+}
+
 echo 0 > $SHMFILE4
+
 while true; do
- # Clean SHMFILE1...
+ # Clean SHMFILE1 and SHMFILE3...
  rm -f $SHMFILE1
+ rm -f $SHMFILE3
 
  # Get active window IDs, parse their titles using grep, extract window ID, and loop over them...
  wmctrl -l | grep -E "$TITLE_MATCH_REGEX" | grep -vE "$WHITELIST_TITLE_MATCH_REGEX" | \
@@ -262,9 +277,9 @@ while true; do
   # Default to loaded/unfreeze, in case something goes horribly wrong...
   SETPROCSTATE="S"
 
+#  echo eee $line
   # Calculate the PID from the window ID
   WIN_PID=$(xprop -id $line | grep "_NET_WM_PID" | grep -oE "[0-9]*")
-
   # Calculate our expectation. If window is unmapped, we unload it, and vice-versa...
   if xwininfo -id $line | grep -q Map\ State:\ IsUnMapped; then
     SETPROCSTATE="T"
@@ -295,11 +310,19 @@ while true; do
  # We loop over every line in SHMFILE2...
  rm -f $SHMFILE3
 
+# SCREENSAVER=0
+
+ # screensaver detection
+ screensaver_check && SCREENSAVER="0" || SCREENSAVER="1"
+# if [ $(cat $SHMFILE3) == 1 ]; then echo qqql; fi
+# SCREENSAVER=$(screensaver_check)
+
  while read WINPROC_COMMAND; do
   # We parse our variables out from the line in our SHM file...
   WIN_PID=$(echo "$WINPROC_COMMAND" | cut -d "-" -f 1)
   SETPROCSTATE=$(echo "$WINPROC_COMMAND" | cut -d "-" -f 2)
   #echo "$WINPROC_COMMAND $WIN_PID"
+
 
   COUNT=$(cat $SHMFILE4)
 
@@ -311,6 +334,8 @@ while true; do
   # If it doesn't match our calculated expectation,
   # We will change it to suit our needs.
   PROCSTATE=$(ps -q "$WIN_PID" -o state --no-headers)
+
+#  SCREENSAVER=$(cat $SHMFILE5)
   if [[ "$PROCSTATE" =~ [RDS] ]] && [ "$SETPROCSTATE" == "T" ]; then
    # Refresh clipboard (workaround for dumbass decision by Xorg to depend on app for clipboard), SMH.
    if ! test -f $SHMFILE3; then
@@ -320,7 +345,15 @@ while true; do
    echo "Freezing PID $WIN_PID, as it is no longer visible..."
    # Freeze the app
    kill -STOP $WIN_PID
-  elif [ "$PROCSTATE" == "T" ] && [ "$SETPROCSTATE" == "S" ]; then
+  elif [[ "$PROCSTATE" =~ [RDS] ]] && [ "$SCREENSAVER" == "1" ]; then
+  # Refresh clipboard (workaround for dumbass decision by Xorg to depend on app for clipboard), SMH.
+   if ! test -f $SHMFILE3; then
+     clipboard-workaround
+     echo 1 > $SHMFILE3
+   fi
+   echo "FREEZING PID $WIN_PID, as screensaver is active..."
+   kill -STOP $WIN_PID
+  elif [ "$PROCSTATE" == "T" ] && [ "$SETPROCSTATE" == "S" ] && [ "$SCREENSAVER" == "0" ]; then
    echo "Thawing PID $WIN_PID, as it is now visible..."
    kill -CONT $WIN_PID
   fi
@@ -336,6 +369,7 @@ while true; do
    printf "Periodic sync: Unfreezing frozen apps for $REFRESH_DELAY seconds... "
    wmctrl -l | grep -E "$TITLE_MATCH_REGEX" | awk '{print $1}' | \
    while read line; do
+#     echo 1 "$line"
      THAW_PID=$(xprop -id $line | grep "_NET_WM_PID" | grep -oE "[0-9]*");
      kill -CONT $THAW_PID;
    done
