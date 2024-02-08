@@ -256,10 +256,14 @@ do
     wait
     continue
   fi
+
   CPU_MAXCAP=0
   CPU_MINCAP=0
   # skip cpu core 0 (master is always on)
   CPUITER=1
+
+  # Assume powersave mode on lid closed (if any)
+  [ -f /proc/acpi/button/lid/LID/state ] && cat /proc/acpi/button/lid/LID/state | grep closed && CPUTILIZATION=10
 
   HOTPLUG_CPUITER=0
   while [ $CPUITER -lt $TOTALPROCS ]; do
