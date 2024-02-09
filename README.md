@@ -20,8 +20,19 @@ This has advantages for low-memory systems, as frozen processes are more easily 
 
 This script is run as an unprivileged user (i.e. not root), in a desktop session. Tested in XFCE, works like a charm. Should also work in other Xorg setups, including things like Compiz.
 
-There is a silly oversight with the Xorg devs assuming the clipboard is the responsibility of the application copied from, which breaks clipboard copying from frozen windows.
-This script has a workaround, although it only works for text.
+For best performance, this should be run as root under sudo (for NICE functionality). Preferably with these added to a file in sudoers.d:
+
+<code>Defaults  env_keep += "XDG_SESSION_TYPE"
+[USER] ALL= NOPASSWD: [SCRIPT_DIR]/xwinhibernate.sh
+</code>
+> replace [USER] with username, and [SCRIPT_DIR] with the directory containing the xwinhibernate script.
+
+> One might want to consider making the script read-only by the users using both 'chmod 755' and 'chown root:root', in order to prevent users from editing it in order to gain privilege escalation on multi-user systems.
+
+Mode can be set to NICE for stability (NICE mode only). Otherwise, STOPCONT functionality may be used. STOPCONT functionality is very powerful (and highly recommended), but it may have a few adverse side-effects that some might not like. Here's what they are, and how to avoid them:
+> There is a silly oversight with the Xorg devs assuming the clipboard is the responsibility of the application copied from, which breaks clipboard copying from frozen windows. This script has a workaround, although it only works for text. To avoid this, keep both windows visible on the current workspace whenever using copy-paste functionality.
+
+> Media playback may be paused on frozen windows. Unfreezing them will resume playback. To avoud this, set media playback windows as sticky (on all workspaces), and don't minimize them.
 
 ## auto-ipv6wg
 Automatically starts wireguard tunnel for IPv6 over IPv4 translation whenever necessary. Disabling it whenever native IPv6 comes back online again.
@@ -29,12 +40,12 @@ Useful in circumstances when one has multiple internet connections, wherein some
 
 e.g. My real-world circumstance where my home internet has native IPv6 connectivity (dual-stack with IPv4 behind CG-NAT), but my mobile connections only support IPv4 (behind SYMMETRIC CG-NAT no less... Not even Teredo would work over that!)
 
-Wireguard should work over the worst of NAT environments, as long as the port isn't blocked (it shouldn't be, unless you are using work/school internet, or a crappy public Wi-Fi. I'd advise you use a mobile phone hotspot instead of those for personal use.). This script should provide the same fallback IPv6 connectivity when roaming on networks without native IPv6 support, regardless of the technology (3G/4G/5G, 802.11, Ethernet, PPP, Dial-Up, etc... but probably not IPoAC due to severe latency issues.).
+Wireguard should work over the worst of NAT environments, as long as the port isn't blocked (it shouldn't be, unless you are using work/school internet, or a crappy public Wi-Fi. I'd advise you use a mobile phone hotspot or a dedicated mobile hotspot device instead of those for personal use anyway.). This script should provide the same fallback IPv6 connectivity when roaming on networks without native IPv6 support, regardless of the technology (3G/4G/5G, 802.11, Ethernet, PPP, Dial-Up, etc... but probably not IPoAC (rfc1149, rfc2549, and rfc6214) due to severe latency issues.).
 
 This script is run as an unprivileged user (i.e. not root), in a desktop session.
-This is not compatible with most commercial VPN providers, or their software (which often block IPv6 anyway (leak prevention)). This is only for IPv6 translation purposes.
+This is not compatible with most commercial VPN providers, or their software (which often block IPv6 anyway (leak prevention)). This is only for IPv6 translation purposes, and is not intended to offer any privacy or anonymity whatsoever.
 
-For this to work, you need an IPv6-enabled wireguard VPN connection configured in NetworkManager, with autoconnect disabled. I would advise using a cheap IPv6-capable VPS (Digitalocean, Linode, etc...) for the wireguard server, as long as it has an IPv6 prefix assigned to it. If one has sufficient know-how, they can assign a separate IPv6 for each wireguard client. If a prefix isn't available, IPv6 NAT (ip6tables MASQUERADE) can be used for simplicity of setup, although this isn't recommended (IPv6 has no shortage of addresses, one can get a 6to4 tunnel for their IPv4-only server if necessary).
+For this to work, you need an IPv6-enabled wireguard VPN connection configured in NetworkManager, with autoconnect disabled. I would advise using a cheap IPv6-capable VPS (Digitalocean, Linode, etc...) for the wireguard server, as long as it has an IPv6 prefix assigned to it. If one has sufficient know-how, they can assign a separate IPv6 for each wireguard client. If a prefix isn't available, IPv6 NAT (ip6tables MASQUERADE) can be used for simplicity of setup, although this isn't recommended as it complicates the network topology (IPv6 has no shortage of addresses, one can easily obtain a 6to4 tunnel for their IPv4-only server if necessary).
 
 Useful resources: https://www.digitalocean.com/community/tutorials/how-to-set-up-wireguard-on-debian-11 https://wiki.archlinux.org/title/WireGuard 
 
