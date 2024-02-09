@@ -8,59 +8,130 @@
 #
 # Required commands: kill, grep, sed, ps, xprop, xwininfo, wmctrl, sort, echo, sleep, xclip
 #
-# This script sends a STOP signal to windows that are not mapped to the current workspace,
-# or those that are minimized, and sends a CONT signal to those that become visible once again.
+# ===========- NICE mode
+#   This script simply de-prioritises inactive windows by setting the nice value higher.
+#   Active windows will be set with a lower nice level, prioritizing it.
+#   This should improve responsiveness of the active application.
+#   Useful for newer systems, with more efficient processors, faster SSDs, and more available RAM.
+#   This mode won't save any memory alone, Look at NICESTOPCONT mode if you want that.
+#   This mode requires running under sudo, with the --preserve-env flag. This may have negative security implications.
 #
-# This script scans for these windows every second,
-# so there may be up to a second of delay upon resume from a suspended state.
+# ===========- STOPCONT mode
+#   This script sends a STOP signal to windows that are not mapped to the current workspace,
+#   or those that are minimized, and sends a CONT signal to those that become visible once again.
+#   This script scans for these windows every second,  so there may be up to a second of delay
+#   upon resume from a suspended state.
+#   This allows the system to more easily swap out these inactive processes from memory
+#   to disk or ZRAM when they are not used, leaving more memory  for the currently active tasks.
+#   This also helps reduce thrashing of the swap file/partition, or wasted CPU cycles on zram thrashing.
+#   Since a frozen process won't change it's memory, frozen processes can be more easily:
+#   - swapped out (swap memory, or zram (zstd compression highly recommended for maximum memory savings)
+#   - merged using uksmd (requires patched kernel. I recommend: https://pfkernel.natalenko.name )
+#   This is useful for low-memory systems, low-cpu systems, as well as systems with slow disks.
+#   This may also reduce resources on terminal servers, with multiple simultaneous VNC or RDP sessions.
+#   This is important, as certain apps are known for hogging unused memory,
+#   and running background processes when they are not used.
+#   I'M LOOKING AT YOU, WEB BROWSERS!!!
+#   NO MORE BACKGROUND LOADING AND JAVASCRIPT WHEN THE BROWSER WINDOW IS MINIMIZED!!!
+#   I swear that those web browsers are behaving like their own operating systems these days...
+#   This can save battery also.
 #
-# This allows the system to more easily swap out these inactive processes from memory
-# to disk or ZRAM when they are not used, leaving more memory  for the currently active tasks.
-# This also helps reduce thrashing of the swap file/partition, or wasted CPU cycles on zram thrashing.
-# Since a frozen process won't change it's memory, frozen processes can be more easily:
-# - swapped out (swap memory, or zram (zstd compression highly recommended for maximum memory savings)
-# - merged using uksmd (requires patched kernel. I recommend: https://pfkernel.natalenko.name )
+#  ===========- NICESTOPCONT mode
+#  Runs both NICE and STOPCONT modes simultaneously. This is the most powerful mode.
+#  About as stable as STOPCONT mode, but with the added benifits of NICE mode
+#  Freezes apps in whitelist when they are hidden.
+#  Additionally de-prioritises non-focused apps, regardless of whitelist.
 #
-# This is useful for low-memory systems, low-cpu systems, as well as systems with slow disks.
-# This may also reduce resources on terminal servers, with multiple simultaneous VNC or RDP sessions.
-# This is important, as certain apps are known for hogging unused memory,
-# and running background processes when they are not used.
 #
-# I'M LOOKING AT YOU, WEB BROWSERS!!!
-# NO MORE BACKGROUND LOADING AND JAVASCRIPT WHEN THE BROWSER WINDOW IS MINIMIZED!!!
-# I swear that those web browsers are behaving like their own operating systems these days...
-#
-# This can save battery also.
-#
-# - A couple of things to note:
+# - A couple of things to note with STOPCONT and NICESTOPCONT modes:
 #
 # - Media Playback
-# Just be sure that the web browser is on the active workspace when you are playing music through it.
-# This script will pause media playback on any window it freezes, so keep that in mind...
-# - Solution:
-#   Just set the media playback window to sticky (on all workspaces), and you should be fine...
-#
+#  Just be sure that the web browser is on the active workspace when you are playing music through it.
+#  This script will pause media playback on any window it freezes, so keep that in mind...
+#  - Solution:
+#    Just set the media playback window to sticky (on all workspaces), and you should be fine...
 # - Copy-Paste bug (you can blame the Xorg server for this one, WORKAROUND WILL BE ATTEMPTED)
-# This might effect copy-paste functionality as well.
-# After attempting to paste from a frozen app, switch to it, and back again.
-# I don't know why the Xorg server doesn't just cache that sort of thing.
-# Caching this information would actually make sense for them to do, so why didn't they do it?
-# We just can't have nice things now, can we?
-# It HAD to be the apps that take resposibility for the copy-paste functionality now, didn't it?
-# A workaround will be attempted, but this might only work for copy-pasting text content.
-# - Solution:
-#   Making sure that both apps in the copy-paste exchange are on the same workspace, and are visible.
-#   This should mitigate the copy-paste problem.
-# Again, what were they thinking?
+#  This might effect copy-paste functionality as well.
+#  After attempting to paste from a frozen app, switch to it, and back again.
+#  I don't know why the Xorg server doesn't just cache that sort of thing.
+#  Caching this information would actually make sense for them to do, so why didn't they do it?
+#  We just can't have nice things now, can we?
+#  It HAD to be the apps that take resposibility for the copy-paste functionality now, didn't it?
+#  A workaround will be attempted, but this might only work for copy-pasting text content.
+#  - Solution:
+#    Making sure that both apps in the copy-paste exchange are on the same workspace, and are visible.
+#    This should mitigate the copy-paste problem.
+#  Again, what were they thinking?
 #
-
+#
+#
 ##########################################################
 ########             CONFIG SECTION               ########
 ##########################################################
 
-#######################################
-##  REFRESH_COUNT and REFRESH_DELAY  ##
-#######################################
+######################
+##  OPERATING MODE  ##
+######################
+#
+# NICE MODE:
+#  - Uses NICE priority to de-prioritize processes of inactive windows.
+#  - Memory savings not possible
+#  - Better for stability
+#  - good for newer systems (more memory / faster disk / faster energy-efficient CPU)
+#  - No whitelisting required
+#  - simplest / Most stable
+#  - Requires runnung under sudo with --preserve-env flag, will failover to STOP/CONT mode.
+#
+# STOPCONT MODE (old mode):
+#  - Sends STOP-CONT commands to PIDs of hidden windows.
+#  - Greater memory savings possible (using swap/zram/uksm)
+#  - Good for older systems (less memory / slower disk / slower energy-inefficient CPU)
+#  - Requires apps to be whitelisted
+#  - Periodically unfreezes processes for 1 second every so often (configurable)
+#  - More complex / Slightly less stable
+#  - Doesn't require root
+#  - Less stable: pauses media playback, sometimes breaks clipboard (workaround attempted).
+#
+# NICESTOPCONT MODE (new mode):
+# - Sends STOP-CONT commands to PIDs of hidden windows.
+# - Uses NICE priority to de-prioritize processes of inactive windows.
+# - Greater memory savings possible (using swap/zram/uksm)
+# - Better for performance on both new and old systems
+# - Less stable: pauses media playback, sometimes breaks clipboard (workaround attempted).
+# - Whitelisting required for STOP/CONT
+# - No whitelisting required for NICE mode
+# - Requires runnung under sudo with --preserve-env flag, will failover to STOP/CONT mode.
+#
+#  Possible modes: NICE STOPCONT NICESTOPCONT
+#
+#  Will failover to STOPCONT mode if sudo is not granted.
+#
+# - DEFAULT:
+# OPERATING_MODE="NICESTOPCONT"
+OPERATING_MODE="NICESTOPCONT"
+
+
+###################################################################
+##  ACTIVE_NICE and INACTIVE_NICE (FOR NICE/NICESTOPCONT MODES)  ##
+###################################################################
+#
+# Nice priority to give active/inactive windows.
+# Higher= lower priority
+# Lower = higher priority
+#
+# max=19 min=-20
+# The defaults should be good enough for most situations.
+#
+# - Defaults:
+# ACTIVE_NICE=0
+# INACTIVE_NICE=15
+#
+ACTIVE_NICE=0
+INACTIVE_NICE=15
+
+#########################################################################
+##  REFRESH_COUNT and REFRESH_DELAY (FOR STOPCONT/NICESTOPCONT MODES)  ##
+#########################################################################
 #
 # Delay between refresh interval, and duration of said interval respectively.
 #
@@ -77,9 +148,9 @@
 REFRESH_COUNT=60
 REFRESH_DELAY=1
 
-#########################
-##  TITLE_MATCH_REGEX  ##
-#########################
+###########################################################
+##  TITLE_MATCH_REGEX (FOR STOPCONT/NICESTOPCONT MODES)  ##
+###########################################################
 #
 # REGEX MATCH for matching specific windows
 #
@@ -122,9 +193,9 @@ REFRESH_DELAY=1
 #
 TITLE_MATCH_REGEX="Mozilla Firefox$|Krita$|Blender$|GNU Image Manipulation Program$|Chromium$|Volume Control$"
 
-###################################
-##  WHITELIST_TITLE_MATCH_REGEX  ##
-###################################
+#####################################################################
+##  WHITELIST_TITLE_MATCH_REGEX (FOR STOPCONT/NICESTOPCONT MODES)  ##
+#####################################################################
 # WHITELIST REGEX for Window Title
 #
 # Similar to TITLE_MATCH_REGEX, but as a whitelist instead.
@@ -148,12 +219,29 @@ WHITELIST_TITLE_MATCH_REGEX="PLACEHOLDER_ThUnD3RB14D_5#+=-I[N-S]PACE_ACE_0[f-s]b
 #----------------------------------------------------------------------------------------#
 ##### START CODE ##### START CODE ##### START CODE ##### START CODE ##### START CODE #####
 
+
+
+if [ "$EUID" -ne 0 ]; then
+  # NICE mode not available. Failover to STOPCONT mode.
+  # Do the same with NICESTOPCONT mode, as there is no point in attempting NICE mode functionality.
+  OPERATING_MODE="STOPCONT"
+  echo "root not granted. Running in STOP/CONT mode..."
+fi
+
+#if ! getcap "${BASH_SOURCE}" | grep -q cap_sys_nice; then
+#  OPERATING_MODE="STOPCONT"
+#  echo "CAP_SYS_NICE not granted. Running in STOP/CONT mode..."
+#else
+##  renice 0 $$
+#  echo "CAP_SYS_NICE granted!"
+#fi
+echo ""
 # Confirm Xorg session. We do not want to run on Wayland!
 #
 # DO NOT COMMENT THIS OUT IN A PATHETIC ATTEMPT TO RUN ON WAYLAND!
 # YOU WILL QUITE BADLY BREAK THINGS UNLESS YOU REWRITE THIS ENTIRE SCRIPT FROM GROUND UP!
 #
-if [ $XDG_SESSION_TYPE == "x11" ]; then
+if [ "$XDG_SESSION_TYPE" == "x11" ]; then
   echo "
 This is an X11 session. We can safely continue...
 
@@ -164,37 +252,47 @@ This doesn't appear to be an X11 desktop session.
 We can not continue, as we require an X11 session.
 
 "
-  [ $XDG_SESSION_TYPE == "wayland" ] && echo "This script is not compatible with Wayland! ABORT!
+  [ "$XDG_SESSION_TYPE" == "wayland" ] && echo "This script is not compatible with Wayland! ABORT!
 Any attempt to circumvent this warning WILL break things, and confuse you greatly, so don't even think about hacking this script to run in a wayland session!
 
+"
+  [ "$EUID" -eq 0 ] && echo "When running using sudo (for NICE mode), please use the preserve environment flag.
+That way, we can detect whether this is an X11 session.
+
+e.g.
+'sudo --preserve-env ${BASH_SOURCE}'
 "
   exit 1
 fi
 # End of session confirmation code...
 
-# Check for missing commands
-SHMFILE1=/dev/shm/xwinhibernate1-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
-prerequisites=("kill" "grep" "sed" "ps" "xprop" "xwininfo" "wmctrl" "sort" "echo" "sleep" "xclip")
-for item in "${prerequisites[@]}"
-do
+STOP_CONT_MODE()
+{
+ echo "Running xwinhibernate in STOP/CONT mode...
+"
+ # Check for missing commands
+ SHMFILE1=/dev/shm/xwinhibernate1-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
+ prerequisites=("kill" "grep" "sed" "ps" "xprop" "xwininfo" "wmctrl" "sort" "echo" "sleep" "xclip")
+ for item in "${prerequisites[@]}"
+ do
   if ! command -v $item &> /dev/null
   then
     echo "\"$item\" command could not be found."
     echo 1 > $SHMFILE1
   fi
-done
-if test -f $SHMFILE1; then
+ done
+ if test -f $SHMFILE1; then
   echo "
 One or more of the abovecommand line utilities can not be found. Please install them before continuing.
 "
   rm -f $SHMFILE1
   exit 1
-else
+ else
   echo "All required command-line utilities are installed. Continuing..."
-fi
+ fi
 
 # We can start the script now...
-echo "Starting xwinhibernate...
+ echo "Starting xwinhibernate...
 
 We will freeze any hidden programs with titles matching this regex:
 $TITLE_MATCH_REGEX
@@ -205,17 +303,17 @@ $WHITELIST_TITLE_MATCH_REGEX
 These regex's can be changed by editing this script. Just be sure to back it up before editing!
 
 "
-# Initialize SHM files...
-SHMFILE_BASE=/dev/shm/xwinhibernate1-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
-SHMFILE1=$SHMFILE_BASE"_cache1"
-SHMFILE2=$SHMFILE_BASE"_cache2"
-SHMFILE3=$SHMFILE_BASE"_cache3"
-SHMFILE4=$SHMFILE_BASE"_counter"
-SHMFILE5=$SHMFILE_BASE"_screensaver_state"
+ # Initialize SHM files...
+ SHMFILE_BASE=/dev/shm/xwinhibernate1-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
+ SHMFILE1=$SHMFILE_BASE"_cache1"
+ SHMFILE2=$SHMFILE_BASE"_cache2"
+ SHMFILE3=$SHMFILE_BASE"_cache3"
+ SHMFILE4=$SHMFILE_BASE"_counter"
+ SHMFILE5=$SHMFILE_BASE"_screensaver_state"
 
-# TRAP termination signals, for cleanup, and unfreezing all windows upon exit...
-cleanup()
-{
+ # TRAP termination signals, for cleanup, and unfreezing all windows upon exit...
+ cleanup()
+ {
   wait
   rm -f $SHMFILE1
   rm -f $SHMFILE2
@@ -232,12 +330,12 @@ cleanup()
   done
   echo "done."
   exit 0
-}
-trap cleanup SIGINT SIGTERM
+ }
+ trap cleanup SIGINT SIGTERM
 
 
-clipboard-workaround()
-{
+ clipboard-workaround()
+ {
    printf "Attempting clipboard workaround... "
 
    # If command doesn't complete within 0.5 seconds, assume inaccessible clipboard pointer, and skip...
@@ -250,135 +348,227 @@ clipboard-workaround()
      echo "$CLIPCONTENTS"| sed -z '$ s/\n$//' | timeout 0.5 xclip -selection c
      echo "Done."
    fi
-}
+ }
 
-screensaver_check()
-{
+ screensaver_check()
+ {
   # xscreensaver
   if pgrep -x "xscreensaver" > /dev/null; then
     if xscreensaver-command -time 2>&1 | grep -q "screen non-blanked"; then return 0
     else return 1
     fi
   fi
-}
+ }
 
-echo 0 > $SHMFILE4
+ echo 0 > $SHMFILE4
+ while true; do
+  # Clean SHMFILE1 and SHMFILE3...
+  rm -f $SHMFILE1
+  rm -f $SHMFILE3
 
-while true; do
- # Clean SHMFILE1 and SHMFILE3...
- rm -f $SHMFILE1
- rm -f $SHMFILE3
-
- # Get active window IDs, parse their titles using grep, extract window ID, and loop over them...
- wmctrl -l | grep -E "$TITLE_MATCH_REGEX" | grep -vE "$WHITELIST_TITLE_MATCH_REGEX" | \
- awk '{print $1}' | \
- while read line
- do
-  # Default to loaded/unfreeze, in case something goes horribly wrong...
-  SETPROCSTATE="S"
+  # Get active window IDs, parse their titles using grep, extract window ID, and loop over them...
+  wmctrl -l | grep -E "$TITLE_MATCH_REGEX" | grep -vE "$WHITELIST_TITLE_MATCH_REGEX" | \
+  awk '{print $1}' | \
+  while read line
+  do
+   # Default to loaded/unfreeze, in case something goes horribly wrong...
+   SETPROCSTATE="S"
 
 #  echo eee $line
-  # Calculate the PID from the window ID
-  WIN_PID=$(xprop -id $line | grep "_NET_WM_PID" | grep -oE "[0-9]*")
-  # Calculate our expectation. If window is unmapped, we unload it, and vice-versa...
-  if xwininfo -id $line | grep -q Map\ State:\ IsUnMapped; then
-    SETPROCSTATE="T"
-  else
-    SETPROCSTATE="S"
-  fi
+   # Calculate the PID from the window ID
+   WIN_PID=$(xprop -id $line | grep "_NET_WM_PID" | grep -oE "[0-9]*")
+   # Calculate our expectation. If window is unmapped, we unload it, and vice-versa...
+   if xwininfo -id $line | grep -q Map\ State:\ IsUnMapped; then
+     SETPROCSTATE="T"
+   else
+     SETPROCSTATE="S"
+   fi
 
-  # Send our expectation to SHMFILE1
-  echo "$WIN_PID-$SETPROCSTATE" >> $SHMFILE1
- done < "${1:-/dev/stdin}"
+   # Send our expectation to SHMFILE1
+   echo "$WIN_PID-$SETPROCSTATE" >> $SHMFILE1
+   done < "${1:-/dev/stdin}"
 
- # DEDUPLICATION HANDLER
- # SHMFILE1 contains suspend data
- sort -u $SHMFILE1 > $SHMFILE2
- # SHMFILE2 contains deduped suspend data (pass 1)
- cat $SHMFILE2 | grep -oE "[0-9]*" | uniq -d > $SHMFILE1
- # SHMFILE1 contains remaining dupes. These must be conflicting setprocstates
- # Maybe a process has at least 2 windows in foreground and background simultaneously...
- # Defaulting to keeping said process alive, to avoid disruption...
-  while read p; do
+   # DEDUPLICATION HANDLER
+   # SHMFILE1 contains suspend data
+   sort -u $SHMFILE1 > $SHMFILE2
+   # SHMFILE2 contains deduped suspend data (pass 1)
+   cat $SHMFILE2 | grep -oE "[0-9]*" | uniq -d > $SHMFILE1
+   # SHMFILE1 contains remaining dupes. These must be conflicting setprocstates
+   # Maybe a process has at least 2 windows in foreground and background simultaneously...
+   # Defaulting to keeping said process alive, to avoid disruption...
+   while read p; do
 #    echo $p-T
     grep -v "$p-T" $SHMFILE2 > $SHMFILE3
     cat $SHMFILE3 > $SHMFILE2
-  done <$SHMFILE1
- # SHMFILE2 contains deduped suspend data (pass 2)
- #
- # SHMFILE2 should now contain all deduped processes, and what to do with them...
- # We loop over every line in SHMFILE2...
- rm -f $SHMFILE3
+   done <$SHMFILE1
+  # SHMFILE2 contains deduped suspend data (pass 2)
+  #
+  # SHMFILE2 should now contain all deduped processes, and what to do with them...
+  # We loop over every line in SHMFILE2...
+  rm -f $SHMFILE3
 
-# SCREENSAVER=0
-
- # screensaver detection
- screensaver_check && SCREENSAVER="0" || SCREENSAVER="1"
+  # screensaver detection
+  screensaver_check && SCREENSAVER="0" || SCREENSAVER="1"
 # if [ $(cat $SHMFILE3) == 1 ]; then echo qqql; fi
 # SCREENSAVER=$(screensaver_check)
 
- while read WINPROC_COMMAND; do
-  # We parse our variables out from the line in our SHM file...
-  WIN_PID=$(echo "$WINPROC_COMMAND" | cut -d "-" -f 1)
-  SETPROCSTATE=$(echo "$WINPROC_COMMAND" | cut -d "-" -f 2)
-  #echo "$WINPROC_COMMAND $WIN_PID"
+  while read WINPROC_COMMAND; do
+   # We parse our variables out from the line in our SHM file...
+   WIN_PID=$(echo "$WINPROC_COMMAND" | cut -d "-" -f 1)
+   SETPROCSTATE=$(echo "$WINPROC_COMMAND" | cut -d "-" -f 2)
+   #echo "$WINPROC_COMMAND $WIN_PID"
 
+   COUNT=$(cat $SHMFILE4)
 
-  COUNT=$(cat $SHMFILE4)
-
-  # Now we can compare our procstates, and send STOP/CONT signals as necessary.
-  #
-  # Treating procstates R D and S as active/running.
-  # Treating procstate T as stopped/frozen.
-  # We will check the PROCSTATE of the process,
-  # If it doesn't match our calculated expectation,
-  # We will change it to suit our needs.
-  PROCSTATE=$(ps -q "$WIN_PID" -o state --no-headers)
+   # Now we can compare our procstates, and send STOP/CONT signals as necessary.
+   #
+   # Treating procstates R D and S as active/running.
+   # Treating procstate T as stopped/frozen.
+   # We will check the PROCSTATE of the process,
+   # If it doesn't match our calculated expectation,
+   # We will change it to suit our needs.
+   PROCSTATE=$(ps -q "$WIN_PID" -o state --no-headers)
 
 #  SCREENSAVER=$(cat $SHMFILE5)
-  if [[ "$PROCSTATE" =~ [RDS] ]] && [ "$SETPROCSTATE" == "T" ]; then
+   if [[ "$PROCSTATE" =~ [RDS] ]] && [ "$SETPROCSTATE" == "T" ]; then
+    # Refresh clipboard (workaround for dumbass decision by Xorg to depend on app for clipboard), SMH.
+    if ! test -f $SHMFILE3; then
+      clipboard-workaround
+      echo 1 > $SHMFILE3
+    fi
+    echo "Freezing PID $WIN_PID, as it is no longer visible..."
+    # Freeze the app
+    kill -STOP $WIN_PID
+   elif [[ "$PROCSTATE" =~ [RDS] ]] && [ "$SCREENSAVER" == "1" ]; then
    # Refresh clipboard (workaround for dumbass decision by Xorg to depend on app for clipboard), SMH.
-   if ! test -f $SHMFILE3; then
-     clipboard-workaround
-     echo 1 > $SHMFILE3
+    if ! test -f $SHMFILE3; then
+      clipboard-workaround
+      echo 1 > $SHMFILE3
+    fi
+    echo "FREEZING PID $WIN_PID, as screensaver is active..."
+    kill -STOP $WIN_PID
+   elif [ "$PROCSTATE" == "T" ] && [ "$SETPROCSTATE" == "S" ] && [ "$SCREENSAVER" == "0" ]; then
+    echo "Thawing PID $WIN_PID, as it is now visible..."
+    kill -CONT $WIN_PID
    fi
-   echo "Freezing PID $WIN_PID, as it is no longer visible..."
-   # Freeze the app
-   kill -STOP $WIN_PID
-  elif [[ "$PROCSTATE" =~ [RDS] ]] && [ "$SCREENSAVER" == "1" ]; then
-  # Refresh clipboard (workaround for dumbass decision by Xorg to depend on app for clipboard), SMH.
-   if ! test -f $SHMFILE3; then
-     clipboard-workaround
-     echo 1 > $SHMFILE3
-   fi
-   echo "FREEZING PID $WIN_PID, as screensaver is active..."
-   kill -STOP $WIN_PID
-  elif [ "$PROCSTATE" == "T" ] && [ "$SETPROCSTATE" == "S" ] && [ "$SCREENSAVER" == "0" ]; then
-   echo "Thawing PID $WIN_PID, as it is now visible..."
-   kill -CONT $WIN_PID
-  fi
-  #echo "$WIN_PID $PROCSTATE $SETPROCSTATE"
- done <$SHMFILE2
+   #echo "$WIN_PID $PROCSTATE $SETPROCSTATE"
+  done <$SHMFILE2
 
- sleep 1
+  sleep 1
 
- COUNT=$(cat $SHMFILE4)
- COUNT=$((COUNT+1))
- if [ $COUNT -ge $REFRESH_COUNT ]; then
-   COUNT=0
-   printf "Periodic sync: Unfreezing frozen apps for $REFRESH_DELAY seconds... "
-   wmctrl -l | grep -E "$TITLE_MATCH_REGEX" | awk '{print $1}' | \
-   while read line; do
+  COUNT=$(cat $SHMFILE4)
+  COUNT=$((COUNT+1))
+  if [ $COUNT -ge $REFRESH_COUNT ]; then
+    COUNT=0
+    printf "Periodic sync: Unfreezing frozen apps for $REFRESH_DELAY seconds... "
+    wmctrl -l | grep -E "$TITLE_MATCH_REGEX" | awk '{print $1}' | \
+    while read line; do
 #     echo 1 "$line"
-     THAW_PID=$(xprop -id $line | grep "_NET_WM_PID" | grep -oE "[0-9]*");
-     kill -CONT $THAW_PID;
-   done
-   sleep $REFRESH_DELAY
-   echo "Done."
+      THAW_PID=$(xprop -id $line | grep "_NET_WM_PID" | grep -oE "[0-9]*");
+      kill -CONT $THAW_PID;
+    done
+    sleep $REFRESH_DELAY
+    echo "Done."
+  fi
+  echo $COUNT > $SHMFILE4
+  #echo $COUNT
+ done
+}
+
+# NICE mode
+NICE_MODE()
+{
+ # Check for missing commands
+ SHMFILE1=/dev/shm/xwinhibernate1-$USER-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 5; echo)
+ prerequisites=("nice" "grep" "xdotool" "xprop" "xwininfo" "wmctrl" "sort" "sleep")
+ for item in "${prerequisites[@]}"
+ do
+  if ! command -v $item &> /dev/null
+  then
+    echo "\"$item\" command could not be found."
+    echo 1 > $SHMFILE1
+  fi
+ done
+ if test -f $SHMFILE1; then
+  echo "
+One or more of the abovecommand line utilities can not be found. Please install them before continuing.
+Failing over to STOPCONT mode...
+"
+  rm -f $SHMFILE1
+  exit 1
+ else
+  echo "All required command-line utilities are installed. Continuing..."
  fi
- echo $COUNT > $SHMFILE4
- #echo $COUNT
-done
+
+ # TRAP termination signals, for cleanup, and unfreezing all windows upon exit...
+ cleanup()
+ {
+  wait
+  echo ""
+  echo "Received termination signal. Restoring NICE level of all windows..."
+
+  wmctrl -l | awk '{print $1}' |\
+  while read windowid; do xprop -id $windowid | grep "_NET_WM_PID" | grep -oE "[0-9]*"; done | sort -u |\
+  while read WINPID; do
+    printf "Restore window: "; renice 0 $WINPID
+  done
+  echo "done."
+  exit 0
+ }
+ trap cleanup SIGINT SIGTERM
+
+ # Main process
+ while true; do
+   ACTIVE_PID=`xprop -id $(xdotool getwindowfocus) | grep "_NET_WM_PID" | grep -oE "[0-9]*"`
+   #echo "$ACTIVE_PID"
+   wmctrl -l | awk '{print $1}' |\
+   while read windowid; do xprop -id $windowid | grep "_NET_WM_PID" | grep -oE "[0-9]*"; done | sort -u |\
+   while read WINPID; do
+     CURRENT_NICE=$(ps -l $WINPID | awk '{print $8}' | tail -n1)
+     if [ "$WINPID" == "$ACTIVE_PID" ]; then
+       if ! [ "$CURRENT_NICE" == "$ACTIVE_NICE" ]; then
+         echo "Active window: Setting NICE of $WINPID to $ACTIVE_NICE"; renice $ACTIVE_NICE $WINPID > /dev/null
+       fi
+     else
+       if ! [ "$CURRENT_NICE" == "$INACTIVE_NICE" ]; then
+         echo "Inactive window: Setting NICE of $WINPID to $INACTIVE_NICE"; renice $INACTIVE_NICE $WINPID > /dev/null
+       fi
+     fi
+   done
+   sleep 1
+ done
+}
+
+if [ "$OPERATING_MODE" == "NICESTOPCONT" ]; then
+  NICE_MODE &
+  NICE_MODE_PID=$!
+  STOP_CONT_MODE &
+  STOPCONT_MODE_PID=$!
+# TRAP termination signals, for cleanup, and unfreezing all windows upon exit...
+  cleanup()
+  {
+   kill -15 $NICE_MODE_PID
+   kill -15 $STOPCONT_MODE_PID
+   echo "All windows should be unfrozen, and NICE values should be returned to normal."
+   echo "done."
+   exit 0
+  }
+  trap cleanup SIGINT SIGTERM
+  sleep infinity
+  kill -15 $NICE_MODE_PID
+  kill -15 $STOPCONT_MODE_PID
+  wait
+  echo "All windows should be unfrozen, and NICE values should be returned to normal."
+  exit 0
+fi
+if [ "$OPERATING_MODE" == "NICE" ]; then
+  NICE_MODE || STOP_CONT_MODE
+  exit 0
+fi
+if [ "$OPERATING_MODE" == "STOPCONT" ]; then
+  STOP_CONT_MODE
+  exit 0
+fi
 
 # If the lines below get executed, something must have gone horribly wrong...
 echo "
