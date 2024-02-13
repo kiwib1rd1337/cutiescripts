@@ -13,27 +13,7 @@ NICE load can be ignored in configuration, preventing low-priority processes fro
 cpuhotplug86 places a config file in /etc/default/cpuhotplug86, allowing for further customisation of thresholds and the such.
 
 ## xwinhibernate
-X11 ONLY, NO WAYLAND SUPPORT!
-Opportunistically freezes processes of windows that are not currently visible on the current x11 session. Unfreezes them when they become visible again.
-
-This has advantages for low-memory systems, as frozen processes are more easily swapped out to swap or zram. Kernel hacks such as UKSM may also be helped out by this.
-
-This script can be run as an unprivileged user (running under sudo is recommended - see below), in a desktop session. Tested in XFCE, works like a charm. Should also work in other Xorg setups, including things like Compiz.
-
-For best performance, this should be run as root under sudo (for NICE functionality), with these lines added into a file in sudoers.d:
-
-<code>Defaults  env_keep += "XDG_SESSION_TYPE"
-[USER] ALL= NOPASSWD: [SCRIPT_DIR]/xwinhibernate.sh
-</code>
-> replace [USER] with username, and [SCRIPT_DIR] with the directory containing the xwinhibernate script. The second line may be modified to match a group instead of a single user.
-> No matter what you do, the XDG_SESSION_TYPE environment variable MUST BE PRESERVED for this script to function under sudo, otherwise it will assume no session is active, and will fail!
-
-> One might want to consider making the script read-only by the users using both 'chmod 755' and 'chown root:root', in order to prevent users from editing it in order to gain privilege escalation on multi-user systems.
-
-Mode can be set to NICE for stability (NICE mode only). Otherwise, STOPCONT functionality may be used. STOPCONT functionality is very powerful (and highly recommended), but it may have a few adverse side-effects that some might not like. Here's what they are, and how to avoid them:
-> There is a silly oversight with the Xorg devs assuming the clipboard is the responsibility of the application copied from, which breaks clipboard copying from frozen windows. This script has a workaround, although it only works for text. To avoid this, keep both windows visible on the current workspace whenever using copy-paste functionality.
-
-> Media playback may be paused on frozen windows. Unfreezing them will resume playback. To avoid this, set media playback windows as sticky (on all workspaces), and don't minimize them.
+REMOVED - Use https://github.com/kernc/xsuspender instead!
 
 ## auto-ipv6wg
 Automatically starts wireguard tunnel for IPv6 over IPv4 translation whenever necessary. Disabling it whenever native IPv6 comes back online again.
